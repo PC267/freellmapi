@@ -62,7 +62,7 @@ describe('Tools-aware routing', () => {
 
     // Verified tool-callers from the live benchmark stay eligible.
     expect(flag('openai/gpt-oss-120b')).toBe(1);
-    expect(flag('gemini-2.5-flash')).toBe(1);
+    expect(flag('gemini-2.5-flash-lite')).toBe(1);
     expect(flag('llama-3.3-70b-versatile')).toBe(1);
 
     // hermes-3 emits tool calls as text — must NOT ride the llama-3 rule.

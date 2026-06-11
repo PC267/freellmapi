@@ -31,6 +31,8 @@ export function migrateDbSchema(db: Database.Database) {
   migrateModelsV22Tools(db);
   migrateModelsV23FreeTierAudit(db);
   migrateModelsV24ZenRefresh(db);
+  migrateModelsV25RemovePaywalled(db);
+  migrateModelsV26KeepFastestOnly(db);
   // After all model migrations: add/refresh paid-equivalent pricing
   // (drives the realistic "Est. savings" analytics stat).
   applyModelPricing(db);
@@ -1830,6 +1832,91 @@ function migrateModelsV24ZenRefresh(db: Database.Database) {
       UPDATE models SET enabled = 0
        WHERE platform = 'nvidia' AND model_id = 'google/gemma-4-31b-it'
     `).run();
+  });
+  apply();
+}
+
+/**
+ * V25 (2026): Remove permanently-unusable models that are (a) paywalled with
+ * no recurring free tier, (b) hard-deprecated with no replacement, or
+ * (c) congested to the point of being unusable (enabled=0 since V23 with no
+ * improvement). Row deletion rather than enabled=0 avoids confusion and keeps
+ * the catalog lean.
+ *
+ * Removed:
+ *   Paywalled (no recurring free-tier path):
+ *     google/gemini-2.5-pro            — V5 disabled; free tier gone
+ *     google/gemini-3.1-pro-preview    — V13 disabled; free_tier_requests limit=0
+ *     ollama/mistral-large-3:675b      — V13 disabled; 403 "requires subscription"
+ *     ollama/deepseek-v3.2             — V13 disabled; 403 "requires subscription"
+ *     ollama/kimi-k2-thinking          — V13 disabled; 403 "requires subscription"
+ *   Hard-deprecated (per Cerebras docs, 2026-05-27):
+ *     cerebras/qwen-3-235b-a22b-instruct-2507 — V14 disabled; no replacement
+ *     cerebras/llama3.1-8b                     — V14 disabled; no replacement
+ *   NIM capacity starvation (forum 504 reports, May-Jun 2026):
+ *     nvidia/google/gemma-4-31b-it    — V24 disabled; Flash-Attention deadlock
+ *   Chronically congested:
+ *     openrouter/nvidia/nemotron-3-ultra-550b-a55b:free — V23 enabled=0; 180s+ gen
+ *
+ * Idempotent: DELETEs target exact (platform, model_id) pairs, safe to re-run.
+ */
+function migrateModelsV25RemovePaywalled(db: Database.Database) {
+  const targets: Array<[string, string]> = [
+    ['google', 'gemini-2.5-pro'],
+    ['google', 'gemini-3.1-pro-preview'],
+    ['ollama', 'mistral-large-3:675b'],
+    ['ollama', 'deepseek-v3.2'],
+    ['ollama', 'kimi-k2-thinking'],
+    ['cerebras', 'qwen-3-235b-a22b-instruct-2507'],
+    ['cerebras', 'llama3.1-8b'],
+    ['nvidia', 'google/gemma-4-31b-it'],
+    ['openrouter', 'nvidia/nemotron-3-ultra-550b-a55b:free'],
+  ];
+  const apply = db.transaction(() => {
+    const getId = db.prepare('SELECT id FROM models WHERE platform = ? AND model_id = ?');
+    const delFb = db.prepare('DELETE FROM fallback_config WHERE model_db_id = ?');
+    const delModel = db.prepare('DELETE FROM models WHERE id = ?');
+    for (const [platform, modelId] of targets) {
+      const row = getId.get(platform, modelId) as { id: number } | undefined;
+      if (!row) continue;
+      delFb.run(row.id);
+      delModel.run(row.id);
+    }
+  });
+  apply();
+}
+
+/**
+ * V26 (2026): Keep only the fastest models (speed_rank 1–4), remove everything
+ * slower. Rationale: the catalog had grown to ~100 models through 25 migrations
+ * but many are slow (rank ≥ 5) — Cloudflare, Cohere, Ollama, NVIDIA, Mistral,
+ * OpenRouter :free pool, etc. The speed_rank is set/updated by earlier
+ * migrations, so running this AFTER all of them reliably identifies every
+ * slow model in one shot.
+ *
+ * Removed: all models with speed_rank >= 5 (roughly 70+ models across all
+ * slow providers).
+ *
+ * Kept (speed_rank 1–4, ~26 models):
+ *   rank 1  — cerebras (gpt-oss-120b, zai-glm-4.7)
+ *   rank 2  — groq (all 9 models)
+ *   rank 3  — google (gemini-2.5-flash-lite, gemini-3.1-flash-lite-preview),
+ *              kilo (stepfun/step-3.7-flash:free)
+ *   rank 4  — google (gemma-4-26b-a4b-it, gemma-4-31b-it),
+ *              opencode (all 6),
+ *              kilo (poolside/laguna-xs.2:free),
+ *              zhipu (glm-4.5-flash, glm-4.6v-flash, glm-4.7-flash)
+ *
+ * Idempotent: DELETE with speed_rank >= 5; rerunning is a no-op.
+ */
+function migrateModelsV26KeepFastestOnly(db: Database.Database) {
+  const apply = db.transaction(() => {
+    db.prepare(`
+      DELETE FROM fallback_config WHERE model_db_id IN (
+        SELECT id FROM models WHERE speed_rank >= 5
+      )
+    `).run();
+    db.prepare('DELETE FROM models WHERE speed_rank >= 5').run();
   });
   apply();
 }

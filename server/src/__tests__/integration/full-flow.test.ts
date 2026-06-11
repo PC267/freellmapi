@@ -47,9 +47,8 @@ describe('Full Integration Flow', () => {
   it('Step 1: Verify models are seeded', async () => {
     const { status, body } = await req(app, 'GET', '/api/models');
     expect(status).toBe(200);
-    // Tightened from >= 14 — current catalog post-V9 is 60+ rows; if a future
-    // migration accidentally drops a chunk we want to know.
-    expect(body.length).toBeGreaterThanOrEqual(50);
+    // V26 trimmed to 26 fastest models. Keep the bar at 26.
+    expect(body.length).toBeGreaterThanOrEqual(26);
     expect(body[0]).toHaveProperty('modelId');
     expect(body[0]).toHaveProperty('hasProvider');
     // All should have providers (catches drift between catalog and providers/index.ts)
@@ -61,7 +60,7 @@ describe('Full Integration Flow', () => {
   it('Step 2: Verify fallback chain is populated', async () => {
     const { status, body } = await req(app, 'GET', '/api/fallback');
     expect(status).toBe(200);
-    expect(body.length).toBeGreaterThanOrEqual(50);
+    expect(body.length).toBeGreaterThanOrEqual(26);
     expect(body[0]).toHaveProperty('priority');
     expect(body[0]).toHaveProperty('enabled');
   });
@@ -172,14 +171,15 @@ describe('Full Integration Flow', () => {
     expect(body.error.message).toContain('not in the catalog');
   });
 
-  it('Step 12: Explicit disabled model returns 400 with disabled reason', async () => {
-    // gemini-2.5-pro is disabled (V1 migration). Reuse it as a known-disabled fixture.
+  it('Step 12: Explicit unknown model returns 400 with not-found reason', async () => {
+    // All previously-disabled models were removed by V25. Use a never-existent
+    // model ID to verify the "not in catalog" error path.
     const { status, body } = await req(app, 'POST', '/v1/chat/completions', {
-      model: 'gemini-2.5-pro',
+      model: 'non-existent-model-xyz',
       messages: [{ role: 'user', content: 'hi' }],
     }, authHeaders());
     expect(status).toBe(400);
     expect(body.error.code).toBe('model_not_found');
-    expect(body.error.message).toContain('is disabled');
+    expect(body.error.message).toContain('not in the catalog');
   });
 });
