@@ -41,7 +41,7 @@ describe('Vision-aware routing (#118, #125)', () => {
 
   it('seeds supports_vision: true for vision models, false for text-only', () => {
     const db = getDb();
-    const vision = db.prepare("SELECT supports_vision FROM models WHERE model_id = 'gemini-2.5-flash'").get() as { supports_vision: number };
+    const vision = db.prepare("SELECT supports_vision FROM models WHERE model_id = 'gemini-2.5-flash-lite'").get() as { supports_vision: number };
     expect(vision.supports_vision).toBe(1);
 
     // The known vision set is flagged; plenty of text-only models remain at 0.

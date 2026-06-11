@@ -55,11 +55,10 @@ describe('Router', () => {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run('groq', 'test', groqKey.encrypted, groqKey.iv, groqKey.authTag, 'healthy', 1);
 
-    // Post-V6: Google's gemini-3.1-pro-preview (rank 1, free-tier-eligible per
-    // probe on 2026-04-25) outranks Groq's best free-tier model openai/gpt-oss-120b
-    // (rank 6). With keys for both platforms, Google wins.
+    // After V26: Groq's openai/gpt-oss-120b (intelligence rank 6) outranks
+    // Google's best kept model (gemini-3.1-flash-lite-preview, rank 18).
     const result = routeRequest();
-    expect(result.platform).toBe('google');
+    expect(result.platform).toBe('groq');
   });
 
   it('should skip disabled keys', () => {
@@ -140,10 +139,13 @@ describe('Router', () => {
   it('should skip keys that cannot be decrypted and use a valid fallback key', () => {
     const db = getDb();
 
+    // Corrupt key on opencode (rank 4 — above groq at rank 6 in the chain).
+    // When routing hits opencode first, the corrupt key fails to decrypt →
+    // marked error → routing falls back to groq with its valid key.
     db.prepare(`
       INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run('google', 'corrupt', 'not-hex', 'not-hex', 'not-hex', 'healthy', 1);
+    `).run('opencode', 'corrupt', 'not-hex', 'not-hex', 'not-hex', 'healthy', 1);
 
     const groqKey = encrypt('test-groq-key');
     db.prepare(`
