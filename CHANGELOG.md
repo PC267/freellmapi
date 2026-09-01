@@ -60,3 +60,33 @@
 - `/v1/models` 已同步（返回 72 个去重后的模型）。
 - 实际 `auto` 路由请求返回 `200 OK`，未命中任何已禁用模型。
 - 改动即时生效，无需重启。
+
+---
+
+## 2026-09-01 — 版本库同步与 Git 环境修复
+
+将上述变更提交并推送到 GitHub，同时修复了本机 Git 推送链路。
+
+### 提交记录（推送至 `origin/main`）
+
+| 提交 | 类型 | 说明 |
+|---|---|---|
+| `9220ff1` | docs | 新增 `CHANGELOG.md`，记录模型清单整理 |
+| `51bf6ea` | chore | 提交 `reasonix.toml`、`reasonix_1.toml` 本地配置 |
+
+远程仓库：`https://github.com/PC267/freellmapi.git`
+
+### 问题与修复
+
+- **现象**：`git push` 一直卡死（超时 > 2 分钟）。
+- **根因**：`~/.gitconfig` 中有一条 `insteadOf` 规则（`git@github.com:` → `https://github.com/`），把 SSH 强制改写为 HTTPS；而本机 **HTTPS(443) 访问 GitHub 被阻断**，SSH(22) 正常且密钥已认证 `PC267`。
+- **处理**：
+  1. 用显式 `ssh://git@github.com/PC267/freellmapi.git` URL 推送（绕过 `insteadOf` 改写，直接走 SSH）——成功。
+  2. 删除全局规则 `url.https://github.com/.insteadOf`，使 `origin`（SSH URL）恢复直连 SSH。
+- **结果**：`git push` / `git fetch` 现已直接走 SSH，正常工作，无需手动指定 URL。
+
+### 验证
+
+- `git ls-remote origin` 走 SSH 正常返回远程分支。
+- `git status -sb` 显示 `## main...origin/main`，本地与远程完全同步。
+- 后续 `git push` 返回 `Everything up-to-date`。
